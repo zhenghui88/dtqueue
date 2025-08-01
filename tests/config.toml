@@ -1,14 +1,8 @@
 bind_address = "127.0.0.1"
 port = 9001
 queues = [
-    "mwr_nwp",
-    "mwr_prg",
-    "analysis_land_input",
-    "forecast_land_input",
-    "analysis_land",
-    "forecast_land",
-    "analysis_river",
-    "forecast_river",
+   "test",
+   "forecast_river",
 ]
 log_file = "log.txt"
 log_level = "debug"

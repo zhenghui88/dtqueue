@@ -1,6 +1,5 @@
-use actix_web::{HttpResponse, Responder, web};
-use dtqueue::utils::sanitize_queue_name;
-use dtqueue::{AppDb, QueueItem};
+use actix_web::{HttpResponse, Responder, http::StatusCode, web};
+use dtqueue::{AppDb, QueueItem, utils};
 use log::{error, info, warn};
 use rusqlite::params;
 
@@ -14,17 +13,11 @@ async fn put_item(db: web::Data<AppDb>, path: web::Path<String>, body: String) -
     let queue = path.into_inner();
     if !db.queues.contains(&queue) {
         warn!("Invalid queue name attempted: {queue}");
-        let body = format!(
-            r#"<?xml version="1.0" encoding="UTF-8"?>
-            <Error>
-                <Code>InvalidQueueName</Code>
-                <Message>Invalid queue name attempted: {queue}</Message>
-            </Error>"#
+        return utils::json_error(
+            StatusCode::FORBIDDEN,
+            "InvalidQueueName",
+            &format!("Invalid queue name attempted: {queue}"),
         );
-        return HttpResponse::Forbidden()
-            .content_type("text/xml")
-            .insert_header(("Content-Length", body.len().to_string()))
-            .body(body);
     }
 
     // parse item from the body
@@ -32,20 +25,11 @@ async fn put_item(db: web::Data<AppDb>, path: web::Path<String>, body: String) -
         Ok(body) => body,
         Err(e) => {
             warn!("Failed to parse request body: {e}");
-            let body = format!(
-                r#"<?xml version="1.0" encoding="UTF-8"?>
-                <Error>
-                    <Code>InvalidRequest</Code>
-                    <Message>Failed to parse request body due to: {e}
-                    Request body:
-{body}
-                    </Message>
-                </Error>"#
+            return utils::json_error(
+                StatusCode::BAD_REQUEST,
+                "BadRequest",
+                &format!("Failed to parse request body due to: {e}\nRequest body:\n{body}"),
             );
-            return HttpResponse::BadRequest()
-                .content_type("text/xml")
-                .insert_header(("Content-Length", body.len().to_string()))
-                .body(body);
         }
     };
 
@@ -53,21 +37,15 @@ async fn put_item(db: web::Data<AppDb>, path: web::Path<String>, body: String) -
         Ok(conn) => conn,
         Err(e) => {
             error!("Failed to lock database: {e}");
-            let body = format!(
-                r#"<?xml version="1.0" encoding="UTF-8"?>
-                <Error>
-                    <Code>InternalError</Code>
-                    <Message>{e}</Message>
-                </Error>"#
+            return utils::json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "InternalError",
+                &format!("Failed to lock database: {e}"),
             );
-            return HttpResponse::InternalServerError()
-                .content_type("text/xml")
-                .insert_header(("Content-Length", body.len().to_string()))
-                .body(body);
         }
     };
 
-    let table = sanitize_queue_name(&queue).unwrap();
+    let table = utils::sanitize_queue_name(&queue).unwrap();
 
     // check if the item already exists
     let mut stmt = conn
@@ -86,17 +64,11 @@ async fn put_item(db: web::Data<AppDb>, path: web::Path<String>, body: String) -
         .expect("Failed to query item existence");
     if count > 0 {
         warn!("append to queue {queue} failed, duplicated items: {item:?}");
-        let body = format!(
-            r#"<?xml version="1.0" encoding="UTF-8"?>
-            <Error>
-                <Code>ItemAlreadyExists</Code>
-                <Message>duplicated item {item:?} in queue {queue}</Message>
-            </Error>"#
+        return utils::json_error(
+            StatusCode::CONFLICT,
+            "ItemAlreadyExists",
+            &format!("duplicated item {item:?} in queue {queue}"),
         );
-        return HttpResponse::Conflict()
-            .content_type("text/xml")
-            .insert_header(("Content-Length", body.len().to_string()))
-            .body(body);
     }
 
     // insert the item
@@ -116,17 +88,11 @@ async fn put_item(db: web::Data<AppDb>, path: web::Path<String>, body: String) -
         }
         Err(e) => {
             error!("Failed to append {item:?} to '{queue}': {e}");
-            let body = format!(
-                r#"<?xml version="1.0" encoding="UTF-8"?>
-                <Error>
-                    <Code>InternalError</Code>
-                    <Message>{e}</Message>
-                </Error>"#
-            );
-            HttpResponse::InternalServerError()
-                .content_type("text/xml")
-                .insert_header(("Content-Length", body.len().to_string()))
-                .body(body)
+            utils::json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "InternalError",
+                &format!("Failed to append item to queue {queue}: {e}"),
+            )
         }
     }
 }
@@ -135,38 +101,26 @@ async fn get_item(db: web::Data<AppDb>, path: web::Path<String>) -> impl Respond
     let queue = path.into_inner();
     if !db.queues.contains(&queue) {
         warn!("Invalid queue name attempted: {queue}");
-        let body = format!(
-            r#"<?xml version="1.0" encoding="UTF-8"?>
-            <Error>
-                <Code>InvalidQueueName</Code>
-                <Message>Invalid queue name attempted: {queue}</Message>
-            </Error>"#
+        return utils::json_error(
+            StatusCode::BAD_REQUEST,
+            "InvalidQueueName",
+            &format!("Invalid queue name attempted: {queue}"),
         );
-        return HttpResponse::BadRequest()
-            .content_type("text/xml")
-            .insert_header(("Content-Length", body.len().to_string()))
-            .body(body);
     }
 
     let conn = match db.conn.lock() {
         Ok(conn) => conn,
         Err(e) => {
             error!("Failed to lock database: {e}");
-            let body = format!(
-                r#"<?xml version="1.0" encoding="UTF-8"?>
-                <Error>
-                    <Code>InternalError</Code>
-                    <Message>{e}</Message>
-                </Error>"#
+            return utils::json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "InternalError",
+                &format!("Failed to lock database: {e}"),
             );
-            return HttpResponse::InternalServerError()
-                .content_type("text/xml")
-                .insert_header(("Content-Length", body.len().to_string()))
-                .body(body);
         }
     };
 
-    let table = sanitize_queue_name(&queue).unwrap();
+    let table = utils::sanitize_queue_name(&queue).unwrap();
 
     // retrieve the item, ordered by datetime and datetime_secondary
     let mut stmt = conn
@@ -210,38 +164,26 @@ async fn delete_item(db: web::Data<AppDb>, path: web::Path<String>) -> impl Resp
     let queue = path.into_inner();
     if !db.queues.contains(&queue) {
         warn!("Invalid queue name attempted: {queue}");
-        let body = format!(
-            r#"<?xml version="1.0" encoding="UTF-8"?>
-            <Error>
-                <Code>InvalidQueueName</Code>
-                <Message>Invalid queue name attempted: {queue}</Message>
-            </Error>"#
+        return utils::json_error(
+            StatusCode::BAD_REQUEST,
+            "InvalidQueueName",
+            &format!("Invalid queue name attempted: {queue}"),
         );
-        return HttpResponse::BadRequest()
-            .content_type("text/xml")
-            .insert_header(("Content-Length", body.len().to_string()))
-            .body(body);
     }
 
     let conn = match db.conn.lock() {
         Ok(conn) => conn,
         Err(e) => {
             error!("Failed to lock database: {e}");
-            let body = format!(
-                r#"<?xml version=\"1.0\" encoding=\"UTF-8\"?>
-                <Error>
-                    <Code>InternalError</Code>
-                    <Message>{e}</Message>
-                </Error>"#
+            return utils::json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "InternalError",
+                &format!("Failed to lock database: {e}"),
             );
-            return HttpResponse::InternalServerError()
-                .content_type("text/xml")
-                .insert_header(("Content-Length", body.len().to_string()))
-                .body(body);
         }
     };
 
-    let table = sanitize_queue_name(&queue).unwrap();
+    let table = utils::sanitize_queue_name(&queue).unwrap();
 
     // Find the first valid item
     let mut stmt = conn
