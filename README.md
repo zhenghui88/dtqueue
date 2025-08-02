@@ -74,8 +74,8 @@ All endpoints are under `/{queue}` where `{queue}` is the name of a configured q
   }
   ```
 - **Responses:**
-  - `200 OK` on success
-  - `409 Conflict` if item already exists
+  - `201 Created` on success
+  - `409 Conflict` if item has been previously enqueued with the same primary and secondary datetime
   - `400 Bad Request` for invalid input
   - `403 Forbidden` if queue name is invalid
 

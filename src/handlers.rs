@@ -63,11 +63,11 @@ async fn put_item(db: web::Data<AppDb>, path: web::Path<String>, body: String) -
         )
         .expect("Failed to query item existence");
     if count > 0 {
-        warn!("append to queue {queue} failed, duplicated items: {item:?}");
+        warn!("append to queue {queue} failed, item has been previously enqueued: {item:?}");
         return utils::json_error(
             StatusCode::CONFLICT,
             "ItemAlreadyExists",
-            &format!("duplicated item {item:?} in queue {queue}"),
+            &format!("item {item:?} has been previously added to {queue}"),
         );
     }
 
@@ -84,7 +84,7 @@ async fn put_item(db: web::Data<AppDb>, path: web::Path<String>, body: String) -
     ]) {
         Ok(_) => {
             info!("append to queue {queue} successful, the item is {item:?}");
-            HttpResponse::Ok().body("")
+            HttpResponse::Created().body("")
         }
         Err(e) => {
             error!("Failed to append {item:?} to '{queue}': {e}");
