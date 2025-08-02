@@ -23,7 +23,8 @@ impl AppDb {
                     datetime_secondary TEXT(27),
                     message TEXT,
                     valid INTEGER NOT NULL DEFAULT 1,
-                    UNIQUE(datetime, datetime_secondary)
+                    creation_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (datetime, datetime_secondary)
                 )"
                 ),
                 params![],
