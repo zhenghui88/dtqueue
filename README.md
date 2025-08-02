@@ -70,7 +70,7 @@ All endpoints are under `/{queue}` where `{queue}` is the name of a configured q
   {
     "datetime": "2024-06-01T12:00:00Z",
     "datetime_secondary": "2024-06-01T12:30:00Z", // optional
-    "message": "your message" // optional
+    "message": "your message" // default to empty string if not present
   }
   ```
 - **Responses:**
@@ -104,8 +104,8 @@ Example:
 ```json
 {
   "datetime": "2024-06-01T12:00:00Z",
-  "datetime_secondary": "2024-06-01T12:30:00Z",
-  "message": "Process this job"
+  "datetime_secondary": "2024-06-01T12:30:00Z", // optional
+  "message": "Process this job" // default to empty string if not present
 }
 ```
 

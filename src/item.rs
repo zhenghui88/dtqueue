@@ -11,8 +11,8 @@ pub struct QueueItem {
     pub datetime: DateTime<Utc>, // Primary datetime
     #[serde(skip_serializing_if = "Option::is_none")]
     pub datetime_secondary: Option<DateTime<Utc>>, // Secondary datetime, optional
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub message: Option<String>, // Message content
+    #[serde(skip_serializing_if = "String::is_empty", default)]
+    pub message: String, // Message content
 }
 
 impl QueueItem {

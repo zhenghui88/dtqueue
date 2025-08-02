@@ -80,7 +80,7 @@ async fn put_item(db: web::Data<AppDb>, path: web::Path<String>, body: String) -
     match stmt.execute(params![
         item.datetime.to_rfc3339(),
         item.datetime_secondary.map(|d| d.to_rfc3339()),
-        item.message.clone().unwrap_or_default()
+        item.message.clone()
     ]) {
         Ok(_) => {
             info!("append to queue {queue} successful, the item is {item:?}");
@@ -128,11 +128,12 @@ async fn get_item(db: web::Data<AppDb>, path: web::Path<String>) -> impl Respond
             "SELECT datetime, datetime_secondary, message FROM {table} WHERE valid = 1 ORDER BY datetime ASC, datetime_secondary ASC LIMIT 1"
         ))
         .expect("invalid SQL statement");
-    let item: Option<QueueItem> = stmt
+    let item = stmt
         .query_row(params![], |row| {
-            let datetime: String = row.get(0)?;
-            let datetime_secondary: Option<String> = row.get(1)?;
-            let message: Option<String> = row.get(2)?;
+            let datetime: String = row.get(0).expect("Failed to get datetime");
+            let datetime_secondary: Option<String> =
+                row.get(1).expect("Failed to get datetime_secondary");
+            let message: String = row.get(2).expect("Failed to get message");
             Ok(QueueItem {
                 datetime: chrono::DateTime::parse_from_rfc3339(&datetime)
                     .unwrap()
@@ -191,11 +192,11 @@ async fn delete_item(db: web::Data<AppDb>, path: web::Path<String>) -> impl Resp
             "SELECT datetime, datetime_secondary, message FROM {table} WHERE valid = 1 ORDER BY datetime ASC, datetime_secondary ASC LIMIT 1"
         ))
         .expect("invalid SQL statement");
-    let result: Option<(String, Option<String>, Option<String>)> = stmt
+    let result: Option<(String, Option<String>, String)> = stmt
         .query_row(params![], |row| {
-            let datetime: String = row.get(0)?;
-            let datetime_secondary: Option<String> = row.get(1)?;
-            let message: Option<String> = row.get(2)?;
+            let datetime = row.get(0).expect("Failed to get datetime");
+            let datetime_secondary = row.get(1).expect("Failed to get datetime_secondary");
+            let message = row.get(2).expect("Failed to get message");
             Ok((datetime, datetime_secondary, message))
         })
         .ok();

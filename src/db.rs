@@ -21,7 +21,7 @@ impl AppDb {
                     "CREATE TABLE IF NOT EXISTS {table} (
                     datetime TEXT(27) NOT NULL,
                     datetime_secondary TEXT(27),
-                    message TEXT,
+                    message TEXT NOT NULL DEFAULT '',
                     valid INTEGER NOT NULL DEFAULT 1,
                     creation_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     PRIMARY KEY (datetime, datetime_secondary)
