@@ -1,4 +1,8 @@
-use actix_web::{HttpResponse, http::StatusCode};
+use axum::{
+    Json,
+    http::StatusCode,
+    response::{IntoResponse, Response},
+};
 use serde::Serialize;
 
 #[derive(Serialize)]
@@ -7,17 +11,13 @@ pub struct JsonError {
     pub message: String,
 }
 
-/// Build a JSON error HttpResponse with status code.
-pub fn json_error(status: StatusCode, code: &str, message: &str) -> HttpResponse {
+/// Build a JSON error Response with status code.
+pub fn json_error(status: StatusCode, code: &str, message: &str) -> Response {
     let error = JsonError {
         code: code.to_string(),
         message: message.to_string(),
     };
-    let body = serde_json::to_string(&error).unwrap();
-    HttpResponse::build(status)
-        .content_type("application/json")
-        .insert_header(("Content-Length", body.len().to_string()))
-        .body(body)
+    (status, Json(error)).into_response()
 }
 
 /// Sanitize queue name to be a valid SQLite table name.

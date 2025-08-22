@@ -1,16 +1,18 @@
-use actix_web::{HttpResponse, Responder, http::StatusCode, web};
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    response::{IntoResponse, Response},
+};
 use dtqueue::{AppDb, QueueItem, utils};
 use log::{error, info, warn};
 use rusqlite::params;
+use std::sync::Arc;
 
-pub fn init_routes(cfg: &mut web::ServiceConfig) {
-    cfg.route("/{queue}", web::put().to(put_item))
-        .route("/{queue}", web::get().to(get_item))
-        .route("/{queue}", web::delete().to(delete_item));
-}
-
-async fn put_item(db: web::Data<AppDb>, path: web::Path<String>, body: String) -> impl Responder {
-    let queue = path.into_inner();
+pub async fn put_item(
+    State(db): State<Arc<AppDb>>,
+    Path(queue): Path<String>,
+    body: String,
+) -> Response {
     if !db.queues.contains(&queue) {
         warn!("Invalid queue name attempted: {queue}");
         return utils::json_error(
@@ -84,7 +86,7 @@ async fn put_item(db: web::Data<AppDb>, path: web::Path<String>, body: String) -
     ]) {
         Ok(_) => {
             info!("append to queue {queue} successful, the item is {item:?}");
-            HttpResponse::Created().body("")
+            StatusCode::CREATED.into_response()
         }
         Err(e) => {
             error!("Failed to append {item:?} to '{queue}': {e}");
@@ -97,8 +99,7 @@ async fn put_item(db: web::Data<AppDb>, path: web::Path<String>, body: String) -
     }
 }
 
-async fn get_item(db: web::Data<AppDb>, path: web::Path<String>) -> impl Responder {
-    let queue = path.into_inner();
+pub async fn get_item(State(db): State<Arc<AppDb>>, Path(queue): Path<String>) -> Response {
     if !db.queues.contains(&queue) {
         warn!("Invalid queue name attempted: {queue}");
         return utils::json_error(
@@ -149,20 +150,21 @@ async fn get_item(db: web::Data<AppDb>, path: web::Path<String>) -> impl Respond
         Some(item) => {
             let body = item.to_json_string().unwrap();
             info!("retrieve from queue {queue}, got {item:?}");
-            HttpResponse::Ok()
-                .content_type("application/json")
-                .insert_header(("Content-Length", body.len().to_string()))
-                .body(body)
+            Response::builder()
+                .status(StatusCode::OK)
+                .header("Content-Type", "application/json")
+                .header("Content-Length", body.len().to_string())
+                .body(body.into())
+                .unwrap()
         }
         None => {
             info!("retrieve from queue {queue}, the queue is empty");
-            HttpResponse::NoContent().finish()
+            StatusCode::NO_CONTENT.into_response()
         }
     }
 }
 
-async fn delete_item(db: web::Data<AppDb>, path: web::Path<String>) -> impl Responder {
-    let queue = path.into_inner();
+pub async fn delete_item(State(db): State<Arc<AppDb>>, Path(queue): Path<String>) -> Response {
     if !db.queues.contains(&queue) {
         warn!("Invalid queue name attempted: {queue}");
         return utils::json_error(
@@ -227,20 +229,24 @@ async fn delete_item(db: web::Data<AppDb>, path: web::Path<String>) -> impl Resp
         let body = item.to_json_string().unwrap();
         if updated > 0 {
             info!("pop from queue {queue}, got {item:?}");
-            HttpResponse::Ok()
-                .content_type("application/json")
-                .insert_header(("Content-Length", body.len().to_string()))
-                .body(body)
+            Response::builder()
+                .status(StatusCode::OK)
+                .header("Content-Type", "application/json")
+                .header("Content-Length", body.len().to_string())
+                .body(body.into())
+                .unwrap()
         } else {
             info!("pop from queue {queue}, got {item:?}, but failed to mark as invalid");
-            HttpResponse::InternalServerError()
-                .content_type("application/json")
-                .insert_header(("Content-Length", body.len().to_string()))
-                .body(body)
+            Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .header("Content-Type", "application/json")
+                .header("Content-Length", body.len().to_string())
+                .body(body.into())
+                .unwrap()
         }
     } else {
         // No valid item found
         info!("pop from queue {queue}, the queue is empty");
-        HttpResponse::NoContent().finish()
+        StatusCode::NO_CONTENT.into_response()
     }
 }

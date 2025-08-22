@@ -1,12 +1,14 @@
-use actix_web::{App, HttpServer, web};
+use axum::{Router, routing::get};
 use dtqueue::{AppConfig, AppDb};
 use log::info;
 use std::env;
 use std::fs::OpenOptions;
 use std::io::Write;
+use std::net::ToSocketAddrs;
+use std::sync::Arc;
 mod handlers;
 
-#[actix_web::main]
+#[tokio::main]
 async fn main() -> std::io::Result<()> {
     let config_path = env::args()
         .nth(1)
@@ -55,21 +57,30 @@ async fn main() -> std::io::Result<()> {
         app_config.bind_address, app_config.port
     );
 
-    let db = AppDb::new(&app_config).expect("Failed to initialize database");
-    let db_data = web::Data::new(db);
+    let db = Arc::new(AppDb::new(&app_config).expect("Failed to initialize database"));
 
-    let server = HttpServer::new(move || {
-        App::new()
-            .app_data(db_data.clone())
-            .configure(handlers::init_routes)
-    })
-    .bind((app_config.bind_address.as_str(), app_config.port))?;
+    // Define routes
+    let app = Router::new()
+        .route(
+            "/{*queue}",
+            get(handlers::get_item)
+                .put(handlers::put_item)
+                .delete(handlers::delete_item),
+        )
+        .with_state(db);
 
-    let server = if let Some(max_workers) = app_config.max_workers {
-        server.workers(max_workers)
-    } else {
-        server.workers(1)
-    };
+    // Create socket address
+    let addr = (app_config.bind_address.as_str(), app_config.port)
+        .to_socket_addrs()
+        .expect("Invalid address")
+        .next()
+        .unwrap();
 
-    server.run().await
+    // Configure workers if available
+    let concurrency_limit = app_config.max_workers.unwrap_or(1);
+
+    // Start server
+    info!("Starting server with {} workers", concurrency_limit);
+    let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
+    axum::serve(listener, app).await
 }
