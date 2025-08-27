@@ -49,13 +49,13 @@ pub async fn put_item(
 
     let table = utils::sanitize_queue_name(&queue).unwrap();
 
-    // check if the item already exists
-    let mut stmt = conn
+    // Check if the item exists before upsert
+    let mut check_stmt = conn
         .prepare(&format!(
             "SELECT COUNT(*) FROM {table} WHERE datetime = ?1 AND datetime_secondary IS ?2"
         ))
         .expect("invalid SQL statement");
-    let count: i64 = stmt
+    let exists: i64 = check_stmt
         .query_row(
             params![
                 item.datetime.to_rfc3339(),
@@ -64,19 +64,11 @@ pub async fn put_item(
             |row| row.get(0),
         )
         .expect("Failed to query item existence");
-    if count > 0 {
-        warn!("append to queue {queue} failed, item has been previously enqueued: {item:?}");
-        return utils::json_error(
-            StatusCode::CONFLICT,
-            "ItemAlreadyExists",
-            &format!("item {item:?} has been previously added to {queue}"),
-        );
-    }
 
-    // insert the item
+    // insert or replace the item
     let mut stmt = conn
         .prepare(&format!(
-            "INSERT INTO {table} (datetime, datetime_secondary, message) VALUES (?1, ?2, ?3)"
+            "INSERT OR REPLACE INTO {table} (datetime, datetime_secondary, message) VALUES (?1, ?2, ?3)"
         ))
         .expect("invalid SQL statement");
     match stmt.execute(params![
@@ -85,15 +77,20 @@ pub async fn put_item(
         item.message.clone()
     ]) {
         Ok(_) => {
-            info!("append to queue {queue} successful, the item is {item:?}");
-            StatusCode::CREATED.into_response()
+            if exists == 0 {
+                info!("insert to queue {queue} successful, the item is {item:?}");
+                StatusCode::CREATED.into_response()
+            } else {
+                info!("replace in queue {queue} successful, the item is {item:?}");
+                StatusCode::NO_CONTENT.into_response()
+            }
         }
         Err(e) => {
-            error!("Failed to append {item:?} to '{queue}': {e}");
+            error!("Failed to insert or replace {item:?} to '{queue}': {e}");
             utils::json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "InternalError",
-                &format!("Failed to append item to queue {queue}: {e}"),
+                &format!("Failed to insert or replace item to queue {queue}: {e}"),
             )
         }
     }

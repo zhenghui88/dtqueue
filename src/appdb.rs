@@ -23,13 +23,19 @@ impl AppDb {
                     datetime_secondary TEXT(27),
                     message TEXT NOT NULL DEFAULT '',
                     valid INTEGER NOT NULL DEFAULT 1,
-                    creation_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_modified TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     PRIMARY KEY (datetime, datetime_secondary)
                 )"
                 ),
                 params![],
             )?;
             queues.insert(queue.clone());
+            let sql = format!(
+                "CREATE TRIGGER IF NOT EXISTS update_{table}_timestamp
+                 AFTER UPDATE ON {table}
+                 BEGIN UPDATE {table} SET last_modified = CURRENT_TIMESTAMP WHERE datetime = NEW.datetime AND datetime_secondary IS NEW.datetime_secondary; END;",
+            );
+            conn.execute(&sql, [])?;
         }
         Ok(AppDb {
             conn: Mutex::new(conn),

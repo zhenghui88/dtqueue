@@ -113,7 +113,6 @@ Adds an item to the specified queue.
 - `201 Created`: Item successfully enqueued
 - `400 Bad Request`: Invalid input or malformed JSON
 - `403 Forbidden`: Invalid queue name
-- `409 Conflict`: Item with same datetime combination already exists
 - `500 Internal Server Error`: Database or server error
 
 ### Peek Item (GET)
@@ -209,7 +208,6 @@ All error responses follow a consistent JSON format:
 
 - `InvalidQueueName`: Attempted to access a non-existent or invalid queue
 - `BadRequest`: Malformed JSON or invalid datetime format
-- `ItemAlreadyExists`: Item with same datetime combination already enqueued
 - `InternalError`: Server or database error
 
 ### Example Error Response
@@ -229,4 +227,4 @@ Content-Type: application/json
 
 - Only queue names with alphanumeric, `_`, or `-` are allowed.
 - The server logs all operations to the configured log file.
-- Items are unique by their `datetime` and `datetime_secondary` combination.
+- Items are unique by their `datetime` and `datetime_secondary` combination. If an item with the same combination already exists, a PUT request will replace it.
