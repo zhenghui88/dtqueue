@@ -86,7 +86,7 @@ curl -X DELETE http://localhost:8080/default
 ### Queue Naming Rules
 
 Queue names must:
-- Contain only alphanumeric characters, underscores (`_`), or dashes (`-`). Underscores and dashes are treated equivalently.
+- Contain only alphanumeric characters or underscores (`_`)
 - Not be empty
 - Be defined in the configuration file before use
 
@@ -225,6 +225,6 @@ Content-Type: application/json
 
 ## Notes
 
-- Only queue names with alphanumeric, `_`, or `-` are allowed.
+- Only queue names with alphanumeric characters or `_` are allowed.
 - The server logs all operations to the configured log file.
 - Items are unique by their `datetime` and `datetime_secondary` combination. If an item with the same combination already exists, a PUT request will replace it.
