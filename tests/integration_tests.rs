@@ -281,7 +281,7 @@ fn test_put_get_delete_operations() {
     // Test PUT operation
     let item = create_queue_item(0, "test message");
     let (status, _) = server.request("PUT", "/", Some(&item)).unwrap();
-    assert_eq!(status, 201, "PUT should return 201 Created");
+    assert_eq!(status, 200, "PUT should return 200 OK");
 
     // Test GET operation
     let (status, body) = server.request("GET", "/", None).unwrap();
@@ -358,7 +358,7 @@ fn test_idempotent_puts() {
 
     // First PUT - should create the item
     let (status, _) = server.request("PUT", "/", Some(&item_json)).unwrap();
-    assert_eq!(status, 201, "First PUT should return 201 Created");
+    assert_eq!(status, 200, "First PUT should return 200 OK");
 
     // Update the same item (same datetime key)
     let updated_item = QueueItem {
@@ -370,7 +370,7 @@ fn test_idempotent_puts() {
 
     // Second PUT - should update the item
     let (status, _) = server.request("PUT", "/", Some(&updated_json)).unwrap();
-    assert_eq!(status, 204, "Second PUT should return 204 No Content");
+    assert_eq!(status, 200, "Second PUT should return 200 OK");
 
     // Check that the item was updated
     let (_, body) = server.request("GET", "/", None).unwrap();
@@ -500,8 +500,8 @@ fn test_invalid_queue_name() {
             match server.request("GET", "/nonexistent_queue", None) {
                 Ok((status, body)) => {
                     assert_eq!(
-                        status, 400,
-                        "Invalid queue name should return 400 Bad Request"
+                        status, 403,
+                        "Invalid queue name should return 403 Forbidden"
                     );
 
                     let error: Value = match serde_json::from_str(&body) {

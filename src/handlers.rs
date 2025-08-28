@@ -47,56 +47,32 @@ pub async fn put_item(
         }
     };
 
-    let table = utils::sanitize_queue_name(&queue).unwrap();
-
-    // Check if the item exists before upsert
-    let mut check_stmt = conn
-        .prepare(&format!(
-            "SELECT COUNT(*) FROM {table} WHERE datetime = ?1 AND datetime_secondary = ?2"
-        ))
-        .expect("invalid SQL statement");
-
-    // insert or replace the item
-    let mut stmt = conn
-        .prepare(&format!(
-            "INSERT OR REPLACE INTO {table} (datetime, datetime_secondary, message) VALUES (?1, ?2, ?3)"
-        ))
-        .expect("invalid SQL statement");
-
     let datetime_str = item.datetime.to_rfc3339();
-
-    // Convert datetime_secondary to string with empty string default
     let datetime_secondary_str = item
         .datetime_secondary
         .map(|d| d.to_rfc3339())
         .unwrap_or_default();
 
-    let exists: i64 = check_stmt
-        .query_row(params![datetime_str, datetime_secondary_str], |row| {
-            row.get(0)
-        })
-        .expect("Failed to query item existence");
+    // Now perform the actual INSERT OR REPLACE
+    // Get the SQL statement once
+    let put_sql = db.put_item_sqls.get(&queue).unwrap();
+    let mut stmt = conn.prepare_cached(put_sql).expect("invalid SQL statement");
 
     match stmt.execute(params![
         datetime_str,
         datetime_secondary_str,
-        item.message.clone()
+        item.message.clone(),
     ]) {
         Ok(_) => {
-            if exists == 0 {
-                info!("insert to queue {queue} successful, the item is {item:?}");
-                StatusCode::CREATED.into_response()
-            } else {
-                info!("replace in queue {queue} successful, the item is {item:?}");
-                StatusCode::NO_CONTENT.into_response()
-            }
+            info!("append to queue {queue} successful, the item is {item:?}");
+            StatusCode::OK.into_response()
         }
         Err(e) => {
-            error!("Failed to insert or replace {item:?} to '{queue}': {e}");
+            error!("Failed to append {item:?} to '{queue}': {e}");
             utils::json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "InternalError",
-                &format!("Failed to insert or replace item to queue {queue}: {e}"),
+                &format!("Failed to append item to queue {queue}: {e}"),
             )
         }
     }
@@ -106,7 +82,7 @@ pub async fn get_item(State(db): State<Arc<AppDb>>, Path(queue): Path<String>) -
     if !db.queues.contains(&queue) {
         warn!("Invalid queue name attempted: {queue}");
         return utils::json_error(
-            StatusCode::BAD_REQUEST,
+            StatusCode::FORBIDDEN,
             "InvalidQueueName",
             &format!("Invalid queue name attempted: {queue}"),
         );
@@ -124,14 +100,11 @@ pub async fn get_item(State(db): State<Arc<AppDb>>, Path(queue): Path<String>) -
         }
     };
 
-    let table = utils::sanitize_queue_name(&queue).unwrap();
+    let sql = db.get_item_sqls.get(&queue).unwrap();
 
-    // retrieve the item, ordered by datetime and datetime_secondary
-    let mut stmt = conn
-        .prepare(&format!(
-            "SELECT datetime, datetime_secondary, message FROM {table} WHERE valid = 1 ORDER BY datetime ASC, datetime_secondary ASC LIMIT 1"
-        ))
-        .expect("invalid SQL statement");
+    // Use prepare_cached to reuse statements
+    let mut stmt = conn.prepare_cached(sql).expect("invalid SQL statement");
+
     let item = stmt
         .query_row(params![], |row| {
             let datetime: String = row.get(0).expect("Failed to get datetime");
@@ -171,7 +144,7 @@ pub async fn delete_item(State(db): State<Arc<AppDb>>, Path(queue): Path<String>
     if !db.queues.contains(&queue) {
         warn!("Invalid queue name attempted: {queue}");
         return utils::json_error(
-            StatusCode::BAD_REQUEST,
+            StatusCode::FORBIDDEN,
             "InvalidQueueName",
             &format!("Invalid queue name attempted: {queue}"),
         );
@@ -189,64 +162,39 @@ pub async fn delete_item(State(db): State<Arc<AppDb>>, Path(queue): Path<String>
         }
     };
 
-    let table = utils::sanitize_queue_name(&queue).unwrap();
+    let delete_sql = db.delete_item_sqls.get(&queue).unwrap();
 
-    // Find the first valid item
+    // Use prepare_cached to reuse statements
     let mut stmt = conn
-        .prepare(&format!(
-            "SELECT datetime, datetime_secondary, message FROM {table} WHERE valid = 1 ORDER BY datetime ASC, datetime_secondary ASC LIMIT 1"
-        ))
+        .prepare_cached(delete_sql)
         .expect("invalid SQL statement");
-    let result: Option<(String, String, String)> = stmt
+
+    let item = stmt
         .query_row(params![], |row| {
-            let datetime = row.get(0).expect("Failed to get datetime");
-            let datetime_secondary = row.get(1).expect("Failed to get datetime_secondary");
-            let message = row.get(2).expect("Failed to get message");
-            Ok((datetime, datetime_secondary, message))
+            let datetime: String = row.get(0).expect("Failed to get datetime");
+            let datetime_secondary: String = row.get(1).expect("Failed to get datetime_secondary");
+            let message: String = row.get(2).expect("Failed to get message");
+            Ok(QueueItem {
+                datetime: chrono::DateTime::parse_from_rfc3339(&datetime)
+                    .unwrap()
+                    .into(),
+                datetime_secondary: chrono::DateTime::parse_from_rfc3339(&datetime_secondary)
+                    .map(|d| d.into())
+                    .ok(),
+                message,
+            })
         })
         .ok();
 
-    if let Some((datetime, datetime_secondary, message)) = result {
-        let item = QueueItem {
-            datetime: chrono::DateTime::parse_from_rfc3339(&datetime)
-                .unwrap()
-                .into(),
-            datetime_secondary: chrono::DateTime::parse_from_rfc3339(&datetime_secondary)
-                .map(|d| d.into())
-                .ok(),
-            message,
-        };
-        // Set valid to 0 for this item
-        let mut update_stmt = conn
-            .prepare(&format!(
-                "UPDATE {table} SET valid = 0 WHERE (datetime = ?1) AND (datetime_secondary = ?2);"
-            ))
-            .expect("invalid SQL statement");
-        let updated = match update_stmt.execute(params![datetime, datetime_secondary]) {
-            Ok(rows) => rows,
-            Err(e) => {
-                error!("Failed to update item in queue {queue}: {e}");
-                0
-            }
-        };
+    if let Some(item) = item {
         let body = item.to_json_string().unwrap();
-        if updated > 0 {
-            info!("pop from queue {queue}, got {item:?}");
-            Response::builder()
-                .status(StatusCode::OK)
-                .header("Content-Type", "application/json")
-                .header("Content-Length", body.len().to_string())
-                .body(body.into())
-                .unwrap()
-        } else {
-            info!("pop from queue {queue}, got {item:?}, but failed to mark as invalid");
-            Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .header("Content-Type", "application/json")
-                .header("Content-Length", body.len().to_string())
-                .body(body.into())
-                .unwrap()
-        }
+        info!("pop from queue {queue}, got {item:?}");
+        Response::builder()
+            .status(StatusCode::OK)
+            .header("Content-Type", "application/json")
+            .header("Content-Length", body.len().to_string())
+            .body(body.into())
+            .unwrap()
     } else {
         // No valid item found
         info!("pop from queue {queue}, the queue is empty");

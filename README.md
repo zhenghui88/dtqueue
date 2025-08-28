@@ -110,7 +110,7 @@ Adds an item to the specified queue.
 ```
 
 **Responses**:
-- `201 Created`: Item successfully enqueued
+- `200 OK`: Item successfully enqueued
 - `400 Bad Request`: Invalid input or malformed JSON
 - `403 Forbidden`: Invalid queue name
 - `500 Internal Server Error`: Database or server error
@@ -124,7 +124,7 @@ Retrieves the next item from the queue without removing it.
 **Responses**:
 - `200 OK`: Returns the next item as JSON
 - `204 No Content`: Queue is empty
-- `400 Bad Request`: Invalid queue name
+- `403 Forbidden`: Invalid queue name
 - `500 Internal Server Error`: Database or server error
 
 **Response Body** (200 OK):
@@ -145,7 +145,7 @@ Removes and returns the next item from the queue.
 **Responses**:
 - `200 OK`: Returns the dequeued item as JSON
 - `204 No Content`: Queue is empty
-- `400 Bad Request`: Invalid queue name
+- `403 Forbidden`: Invalid queue name
 - `500 Internal Server Error`: Database or server error
 
 **Response Body** (200 OK):
