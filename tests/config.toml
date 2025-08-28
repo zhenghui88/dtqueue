@@ -1,7 +1,0 @@
-bind_address = "127.0.0.1"
-port = 9001
-queues = ["test"]
-log_file = "log.txt"
-log_level = "debug"
-database_path = "queue.sqlite"
-max_workers = 1

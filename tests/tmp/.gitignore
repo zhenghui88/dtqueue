@@ -1,0 +1,4 @@
+# Ignore all files in the tmp directory (used for isolated test server instances)
+*
+# But keep the directory itself with this .gitignore file
+!.gitignore
