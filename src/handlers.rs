@@ -52,18 +52,9 @@ pub async fn put_item(
     // Check if the item exists before upsert
     let mut check_stmt = conn
         .prepare(&format!(
-            "SELECT COUNT(*) FROM {table} WHERE datetime = ?1 AND datetime_secondary IS ?2"
+            "SELECT COUNT(*) FROM {table} WHERE datetime = ?1 AND datetime_secondary = ?2"
         ))
         .expect("invalid SQL statement");
-    let exists: i64 = check_stmt
-        .query_row(
-            params![
-                item.datetime.to_rfc3339(),
-                item.datetime_secondary.map(|d| d.to_rfc3339())
-            ],
-            |row| row.get(0),
-        )
-        .expect("Failed to query item existence");
 
     // insert or replace the item
     let mut stmt = conn
@@ -71,9 +62,24 @@ pub async fn put_item(
             "INSERT OR REPLACE INTO {table} (datetime, datetime_secondary, message) VALUES (?1, ?2, ?3)"
         ))
         .expect("invalid SQL statement");
+
+    let datetime_str = item.datetime.to_rfc3339();
+
+    // Convert datetime_secondary to string with empty string default
+    let datetime_secondary_str = item
+        .datetime_secondary
+        .map(|d| d.to_rfc3339())
+        .unwrap_or_default();
+
+    let exists: i64 = check_stmt
+        .query_row(params![datetime_str, datetime_secondary_str], |row| {
+            row.get(0)
+        })
+        .expect("Failed to query item existence");
+
     match stmt.execute(params![
-        item.datetime.to_rfc3339(),
-        item.datetime_secondary.map(|d| d.to_rfc3339()),
+        datetime_str,
+        datetime_secondary_str,
         item.message.clone()
     ]) {
         Ok(_) => {
@@ -129,15 +135,15 @@ pub async fn get_item(State(db): State<Arc<AppDb>>, Path(queue): Path<String>) -
     let item = stmt
         .query_row(params![], |row| {
             let datetime: String = row.get(0).expect("Failed to get datetime");
-            let datetime_secondary: Option<String> =
-                row.get(1).expect("Failed to get datetime_secondary");
+            let datetime_secondary: String = row.get(1).expect("Failed to get datetime_secondary");
             let message: String = row.get(2).expect("Failed to get message");
             Ok(QueueItem {
                 datetime: chrono::DateTime::parse_from_rfc3339(&datetime)
                     .unwrap()
                     .into(),
-                datetime_secondary: datetime_secondary
-                    .map(|d| chrono::DateTime::parse_from_rfc3339(&d).unwrap().into()),
+                datetime_secondary: chrono::DateTime::parse_from_rfc3339(&datetime_secondary)
+                    .map(|d| d.into())
+                    .ok(),
                 message,
             })
         })
@@ -191,7 +197,7 @@ pub async fn delete_item(State(db): State<Arc<AppDb>>, Path(queue): Path<String>
             "SELECT datetime, datetime_secondary, message FROM {table} WHERE valid = 1 ORDER BY datetime ASC, datetime_secondary ASC LIMIT 1"
         ))
         .expect("invalid SQL statement");
-    let result: Option<(String, Option<String>, String)> = stmt
+    let result: Option<(String, String, String)> = stmt
         .query_row(params![], |row| {
             let datetime = row.get(0).expect("Failed to get datetime");
             let datetime_secondary = row.get(1).expect("Failed to get datetime_secondary");
@@ -205,15 +211,15 @@ pub async fn delete_item(State(db): State<Arc<AppDb>>, Path(queue): Path<String>
             datetime: chrono::DateTime::parse_from_rfc3339(&datetime)
                 .unwrap()
                 .into(),
-            datetime_secondary: datetime_secondary
-                .clone()
-                .map(|d| chrono::DateTime::parse_from_rfc3339(&d).unwrap().into()),
+            datetime_secondary: chrono::DateTime::parse_from_rfc3339(&datetime_secondary)
+                .map(|d| d.into())
+                .ok(),
             message,
         };
         // Set valid to 0 for this item
         let mut update_stmt = conn
             .prepare(&format!(
-                "UPDATE {table} SET valid = 0 WHERE (datetime = ?1) AND (datetime_secondary IS ?2);"
+                "UPDATE {table} SET valid = 0 WHERE (datetime = ?1) AND (datetime_secondary = ?2);"
             ))
             .expect("invalid SQL statement");
         let updated = match update_stmt.execute(params![datetime, datetime_secondary]) {

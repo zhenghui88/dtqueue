@@ -20,7 +20,7 @@ impl AppDb {
                 &format!(
                     "CREATE TABLE IF NOT EXISTS {table} (
                     datetime TEXT(27) NOT NULL,
-                    datetime_secondary TEXT(27),
+                    datetime_secondary TEXT(27) NOT NULL DEFAULT '',
                     message TEXT NOT NULL DEFAULT '',
                     valid INTEGER NOT NULL DEFAULT 1,
                     last_modified TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -33,9 +33,15 @@ impl AppDb {
             let sql = format!(
                 "CREATE TRIGGER IF NOT EXISTS update_{table}_timestamp
                  AFTER UPDATE ON {table}
-                 BEGIN UPDATE {table} SET last_modified = CURRENT_TIMESTAMP WHERE datetime = NEW.datetime AND datetime_secondary IS NEW.datetime_secondary; END;",
+                 BEGIN UPDATE {table} SET last_modified = CURRENT_TIMESTAMP WHERE datetime = NEW.datetime AND datetime_secondary = NEW.datetime_secondary; END;",
             );
             conn.execute(&sql, [])?;
+
+            // Add index to improve performance when filtering by valid status
+            let index_sql = format!(
+                "CREATE INDEX IF NOT EXISTS idx_{table}_valid ON {table} (valid, datetime, datetime_secondary)"
+            );
+            conn.execute(&index_sql, [])?;
         }
         Ok(AppDb {
             conn: Mutex::new(conn),
