@@ -35,6 +35,12 @@ pub async fn put_item(
         }
     };
 
+    let datetime_str = item.datetime.to_rfc3339();
+    let datetime_secondary_str = item
+        .datetime_secondary
+        .map(|d| d.to_rfc3339())
+        .unwrap_or_default();
+
     let conn = match db.conn.lock() {
         Ok(conn) => conn,
         Err(e) => {
@@ -47,15 +53,9 @@ pub async fn put_item(
         }
     };
 
-    let datetime_str = item.datetime.to_rfc3339();
-    let datetime_secondary_str = item
-        .datetime_secondary
-        .map(|d| d.to_rfc3339())
-        .unwrap_or_default();
-
+    let put_sql = db.put_item_sqls.get(&queue).unwrap();
     // Now perform the actual INSERT OR REPLACE
     // Get the SQL statement once
-    let put_sql = db.put_item_sqls.get(&queue).unwrap();
     let mut stmt = conn.prepare_cached(put_sql).expect("invalid SQL statement");
 
     match stmt.execute(params![
