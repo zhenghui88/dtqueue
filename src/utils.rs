@@ -35,6 +35,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_json_error_response() {
+        let response = json_error(StatusCode::BAD_REQUEST, "TestError", "Test error message");
+        let (status, _) = response.into_parts();
+        assert_eq!(status.status, StatusCode::BAD_REQUEST);
+
+        // Test more status codes
+        let response = json_error(StatusCode::NOT_FOUND, "NotFound", "Resource not found");
+        let (status, _) = response.into_parts();
+        assert_eq!(status.status, StatusCode::NOT_FOUND);
+    }
+
+    #[test]
     fn test_valid_queue_names() {
         // Test valid queue names
         assert_eq!(

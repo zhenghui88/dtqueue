@@ -26,3 +26,63 @@ impl QueueItem {
         serde_json::from_str(s)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+
+    #[test]
+    fn test_queue_item_serialization() {
+        let now = Utc::now();
+        let item = QueueItem {
+            datetime: now,
+            datetime_secondary: None,
+            message: "test message".to_string(),
+        };
+
+        let json = item.to_json_string().unwrap();
+        let deserialized = QueueItem::from_json_string(&json).unwrap();
+
+        assert_eq!(item.datetime, deserialized.datetime);
+        assert_eq!(item.datetime_secondary, deserialized.datetime_secondary);
+        assert_eq!(item.message, deserialized.message);
+    }
+
+    #[test]
+    fn test_queue_item_with_secondary_datetime() {
+        let now = Utc::now();
+        let secondary = now + chrono::Duration::hours(1);
+        let item = QueueItem {
+            datetime: now,
+            datetime_secondary: Some(secondary),
+            message: "test message".to_string(),
+        };
+
+        let json = item.to_json_string().unwrap();
+        let deserialized = QueueItem::from_json_string(&json).unwrap();
+
+        assert_eq!(item.datetime, deserialized.datetime);
+        assert_eq!(item.datetime_secondary, deserialized.datetime_secondary);
+        assert_eq!(item.message, deserialized.message);
+    }
+
+    #[test]
+    fn test_empty_message_skips_serializing() {
+        let now = Utc::now();
+        let item = QueueItem {
+            datetime: now,
+            datetime_secondary: None,
+            message: "".to_string(),
+        };
+
+        let json = item.to_json_string().unwrap();
+        assert!(!json.contains("message"));
+    }
+
+    #[test]
+    fn test_invalid_json_deserialization() {
+        let result = QueueItem::from_json_string("{invalid_json}");
+        assert!(result.is_err());
+    }
+}

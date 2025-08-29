@@ -201,3 +201,92 @@ pub async fn delete_item(State(db): State<Arc<AppDb>>, Path(queue): Path<String>
         StatusCode::NO_CONTENT.into_response()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::AppConfig;
+    use axum::Router;
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use axum::routing::get;
+    use chrono::Utc;
+    use tower::ServiceExt;
+
+    fn setup_test_app() -> (Router, Arc<AppDb>) {
+        let config = AppConfig {
+            bind_address: "127.0.0.1".to_string(),
+            port: 8080,
+            queues: vec!["queue".to_string()],
+            log_file: "test.log".to_string(),
+            log_level: "info".to_string(),
+            database_path: ":memory:".to_string(),
+            max_workers: Some(2),
+        };
+
+        let db = Arc::new(AppDb::new(&config).unwrap());
+
+        let app = Router::new()
+            .route("/{*queue}", get(get_item).put(put_item).delete(delete_item))
+            .with_state(db.clone());
+
+        (app, db)
+    }
+
+    #[tokio::test]
+    async fn test_put_item_handler() {
+        let (app, _) = setup_test_app();
+
+        let now = Utc::now();
+        let item = QueueItem {
+            datetime: now,
+            datetime_secondary: None,
+            message: "test message".to_string(),
+        };
+
+        let json = item.to_json_string().unwrap();
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri("/queue")
+                    .header("Content-Type", "application/json")
+                    .header("Content-Length", json.len().to_string())
+                    .body(Body::from(json))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_put_invalid_queue() {
+        let (app, _) = setup_test_app();
+
+        let now = Utc::now();
+        let item = QueueItem {
+            datetime: now,
+            datetime_secondary: None,
+            message: "test message".to_string(),
+        };
+
+        let json = item.to_json_string().unwrap();
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri("/queue/invalid_queue")
+                    .header("Content-Type", "application/json")
+                    .body(Body::from(json))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+}
