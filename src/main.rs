@@ -81,6 +81,12 @@ async fn main() -> std::io::Result<()> {
 
     // Start server
     info!("Starting server with {} workers", concurrency_limit);
+
+    // Apply concurrency limit directly to the router
+    let app = app
+        .layer(axum::extract::DefaultBodyLimit::max(1024 * 1024 * 10))
+        .layer(tower::limit::ConcurrencyLimitLayer::new(concurrency_limit));
+
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
     axum::serve(listener, app).await
 }
