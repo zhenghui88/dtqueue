@@ -35,11 +35,11 @@ pub async fn put_item(
         }
     };
 
-    let datetime_str = item.datetime.to_rfc3339();
-    let datetime_secondary_str = item
+    let datetime_val = item.datetime.timestamp_millis();
+    let datetime_secondary_val = item
         .datetime_secondary
-        .map(|d| d.to_rfc3339())
-        .unwrap_or_default();
+        .map(|d| d.timestamp_millis())
+        .unwrap_or(i64::MIN);
 
     let conn = match db.conn.lock() {
         Ok(conn) => conn,
@@ -59,8 +59,8 @@ pub async fn put_item(
     let mut stmt = conn.prepare_cached(put_sql).expect("invalid SQL statement");
 
     match stmt.execute(params![
-        datetime_str,
-        datetime_secondary_str,
+        datetime_val,
+        datetime_secondary_val,
         item.message.clone(),
     ]) {
         Ok(_) => {
@@ -107,16 +107,20 @@ pub async fn get_item(State(db): State<Arc<AppDb>>, Path(queue): Path<String>) -
 
     let item = stmt
         .query_row(params![], |row| {
-            let datetime: String = row.get(0).expect("Failed to get datetime");
-            let datetime_secondary: String = row.get(1).expect("Failed to get datetime_secondary");
+            let datetime: i64 = row.get(0).expect("Failed to get datetime");
+            let datetime_secondary: i64 = row.get(1).expect("Failed to get datetime_secondary");
             let message: String = row.get(2).expect("Failed to get message");
             Ok(QueueItem {
-                datetime: chrono::DateTime::parse_from_rfc3339(&datetime)
-                    .unwrap()
-                    .into(),
-                datetime_secondary: chrono::DateTime::parse_from_rfc3339(&datetime_secondary)
-                    .map(|d| d.into())
-                    .ok(),
+                datetime: chrono::DateTime::<chrono::Utc>::from_timestamp_millis(datetime)
+                    .expect("Invalid datetime from DB"),
+                datetime_secondary: if datetime_secondary == i64::MIN {
+                    None
+                } else {
+                    Some(
+                        chrono::DateTime::<chrono::Utc>::from_timestamp_millis(datetime_secondary)
+                            .expect("Invalid datetime_secondary from DB"),
+                    )
+                },
                 message,
             })
         })
@@ -171,16 +175,20 @@ pub async fn delete_item(State(db): State<Arc<AppDb>>, Path(queue): Path<String>
 
     let item = stmt
         .query_row(params![], |row| {
-            let datetime: String = row.get(0).expect("Failed to get datetime");
-            let datetime_secondary: String = row.get(1).expect("Failed to get datetime_secondary");
+            let datetime: i64 = row.get(0).expect("Failed to get datetime");
+            let datetime_secondary: i64 = row.get(1).expect("Failed to get datetime_secondary");
             let message: String = row.get(2).expect("Failed to get message");
             Ok(QueueItem {
-                datetime: chrono::DateTime::parse_from_rfc3339(&datetime)
-                    .unwrap()
-                    .into(),
-                datetime_secondary: chrono::DateTime::parse_from_rfc3339(&datetime_secondary)
-                    .map(|d| d.into())
-                    .ok(),
+                datetime: chrono::DateTime::<chrono::Utc>::from_timestamp_millis(datetime)
+                    .expect("Invalid datetime from DB"),
+                datetime_secondary: if datetime_secondary == i64::MIN {
+                    None
+                } else {
+                    Some(
+                        chrono::DateTime::<chrono::Utc>::from_timestamp_millis(datetime_secondary)
+                            .expect("Invalid datetime_secondary from DB"),
+                    )
+                },
                 message,
             })
         })

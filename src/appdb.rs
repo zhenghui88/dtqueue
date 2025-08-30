@@ -29,10 +29,10 @@ impl AppDb {
             conn.execute(
                 &format!(
                     "CREATE TABLE IF NOT EXISTS {table} (
-                    datetime TEXT(27) NOT NULL,
-                    datetime_secondary TEXT(27) NOT NULL DEFAULT '',
+                    datetime BIGINT NOT NULL,
+                    datetime_secondary BIGINT NOT NULL DEFAULT -9223372036854775808,
                     message TEXT NOT NULL DEFAULT '',
-                    valid INTEGER NOT NULL DEFAULT 1,
+                    valid INT2 NOT NULL DEFAULT 1,
                     last_modified TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     PRIMARY KEY (datetime, datetime_secondary)
                 )"
@@ -49,7 +49,7 @@ impl AppDb {
 
             // Add index to improve performance when filtering by valid status
             let index_sql = format!(
-                "CREATE INDEX IF NOT EXISTS idx_{table}_valid ON {table} (valid, datetime, datetime_secondary)"
+                "CREATE INDEX IF NOT EXISTS idx_{table}_isvalid ON {table} (valid, datetime, datetime_secondary)"
             );
             conn.execute(&index_sql, [])?;
 
