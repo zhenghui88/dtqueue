@@ -17,6 +17,13 @@ pub struct AppDb {
 impl AppDb {
     pub fn new(config: &AppConfig) -> Result<Self> {
         let conn = Connection::open(&config.database_path)?;
+
+        // Enable WAL journal mode for better concurrency
+        conn.pragma_update(None, "journal_mode", "WAL")?;
+
+        // Enable FULL synchronous mode for maximum data safety
+        conn.pragma_update(None, "synchronous", "FULL")?;
+
         let mut queues = HashSet::new();
 
         // Store SQL statements for each queue
