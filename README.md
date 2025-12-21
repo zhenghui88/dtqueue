@@ -1,19 +1,18 @@
 # dtqueue
 
-**dtqueue** is a lightweight, HTTP-based date and time priority queue service. It provides persistent storage using SQLite3 and supports multiple named queues with configurable datetime-based prioritization.
+**dtqueue** is a lightweight, HTTP-based date and time priority queue service. It provides persistent storage using SQLite3 or fast in-memory storage, and supports multiple named queues with configurable datetime-based prioritization.
 
 ## Features
 
 - **Multiple Named Queues**: Define and manage multiple independent queues with separate SQLite tables
 - **DateTime Priority**: Items are ordered by primary datetime with optional secondary datetime for tie-breaking
 - **HTTP REST API**: Simple RESTful endpoints for enqueue (PUT), dequeue (DELETE), and peek (GET).
-- **Persistent Storage**: All data is stored in SQLite3 with proper transaction handling
+- **Flexible Storage**: Choose between persistent SQLite3 storage or fast in-memory storage
 - **Configurable Logging**: File-based logging with adjustable log levels
-- **Thread-Safe**: Built with concurrency in mind using Arc and Mutex
+- **Thread-Safe**: Built with concurrency in mind using Arc, RwLock, and connection pooling
 - **Error Handling**: Detailed error responses in JSON format
 
 ## Installation
-
 ### Building from Source
 
 ```bash
@@ -80,7 +79,7 @@ curl -X DELETE http://localhost:8080/default
 | `queues` | Vec<String> | Required | List of queue names to create |
 | `log_file` | String | Required | Path to the log file |
 | `log_level` | String | "info" | Log level: debug, info, warn, error |
-| `database_path` | String | Required | Path to SQLite database file |
+| `database_path` | String | Required | Path to SQLite database file, or ":memory:" for in-memory storage |
 | `max_workers` | Option<usize> | None | Maximum worker threads (default: 1) |
 
 ### Queue Naming Rules

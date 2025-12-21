@@ -1,4 +1,5 @@
 use serde::Deserialize;
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct AppConfig {
     pub bind_address: String,

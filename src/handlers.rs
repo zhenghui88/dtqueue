@@ -3,17 +3,16 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use dtqueue::{AppDb, QueueItem, utils};
+use dtqueue::{QueueItem, Storage, utils};
 use log::{error, info, warn};
-use rusqlite::params;
 use std::sync::Arc;
 
 pub async fn put_item(
-    State(db): State<Arc<AppDb>>,
+    State(storage): State<Arc<dyn Storage>>,
     Path(queue): Path<String>,
     body: String,
 ) -> Response {
-    if !db.queues.contains(&queue) {
+    if !storage.queue_exists(&queue) {
         warn!("Invalid queue name attempted: {queue}");
         return utils::json_error(
             StatusCode::FORBIDDEN,
@@ -35,34 +34,7 @@ pub async fn put_item(
         }
     };
 
-    let datetime_val = item.datetime.timestamp_millis();
-    let datetime_secondary_val = item
-        .datetime_secondary
-        .map(|d| d.timestamp_millis())
-        .unwrap_or(i64::MIN);
-
-    let conn = match db.conn.lock() {
-        Ok(conn) => conn,
-        Err(e) => {
-            error!("Failed to lock database: {e}");
-            return utils::json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "InternalError",
-                &format!("Failed to lock database: {e}"),
-            );
-        }
-    };
-
-    let put_sql = db.put_item_sqls.get(&queue).unwrap();
-    // Now perform the actual INSERT OR REPLACE
-    // Get the SQL statement once
-    let mut stmt = conn.prepare_cached(put_sql).expect("invalid SQL statement");
-
-    match stmt.execute(params![
-        datetime_val,
-        datetime_secondary_val,
-        item.message.clone(),
-    ]) {
+    match storage.put_item(&queue, item.clone()) {
         Ok(_) => {
             info!("append to queue {queue} successful, the item is {item:?}");
             StatusCode::OK.into_response()
@@ -78,8 +50,11 @@ pub async fn put_item(
     }
 }
 
-pub async fn get_item(State(db): State<Arc<AppDb>>, Path(queue): Path<String>) -> Response {
-    if !db.queues.contains(&queue) {
+pub async fn get_item(
+    State(storage): State<Arc<dyn Storage>>,
+    Path(queue): Path<String>,
+) -> Response {
+    if !storage.queue_exists(&queue) {
         warn!("Invalid queue name attempted: {queue}");
         return utils::json_error(
             StatusCode::FORBIDDEN,
@@ -88,46 +63,8 @@ pub async fn get_item(State(db): State<Arc<AppDb>>, Path(queue): Path<String>) -
         );
     }
 
-    let conn = match db.conn.lock() {
-        Ok(conn) => conn,
-        Err(e) => {
-            error!("Failed to lock database: {e}");
-            return utils::json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "InternalError",
-                &format!("Failed to lock database: {e}"),
-            );
-        }
-    };
-
-    let sql = db.get_item_sqls.get(&queue).unwrap();
-
-    // Use prepare_cached to reuse statements
-    let mut stmt = conn.prepare_cached(sql).expect("invalid SQL statement");
-
-    let item = stmt
-        .query_row(params![], |row| {
-            let datetime: i64 = row.get(0).expect("Failed to get datetime");
-            let datetime_secondary: i64 = row.get(1).expect("Failed to get datetime_secondary");
-            let message: String = row.get(2).expect("Failed to get message");
-            Ok(QueueItem {
-                datetime: chrono::DateTime::<chrono::Utc>::from_timestamp_millis(datetime)
-                    .expect("Invalid datetime from DB"),
-                datetime_secondary: if datetime_secondary == i64::MIN {
-                    None
-                } else {
-                    Some(
-                        chrono::DateTime::<chrono::Utc>::from_timestamp_millis(datetime_secondary)
-                            .expect("Invalid datetime_secondary from DB"),
-                    )
-                },
-                message,
-            })
-        })
-        .ok();
-
-    match item {
-        Some(item) => {
+    match storage.get_item(&queue) {
+        Ok(Some(item)) => {
             let body = item.to_json_string().unwrap();
             info!("retrieve from queue {queue}, got {item:?}");
             Response::builder()
@@ -137,15 +74,26 @@ pub async fn get_item(State(db): State<Arc<AppDb>>, Path(queue): Path<String>) -
                 .body(body.into())
                 .unwrap()
         }
-        None => {
+        Ok(None) => {
             info!("retrieve from queue {queue}, the queue is empty");
             StatusCode::NO_CONTENT.into_response()
+        }
+        Err(e) => {
+            error!("Failed to get item from '{queue}': {e}");
+            utils::json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "InternalError",
+                &format!("Failed to get item from queue {queue}: {e}"),
+            )
         }
     }
 }
 
-pub async fn delete_item(State(db): State<Arc<AppDb>>, Path(queue): Path<String>) -> Response {
-    if !db.queues.contains(&queue) {
+pub async fn delete_item(
+    State(storage): State<Arc<dyn Storage>>,
+    Path(queue): Path<String>,
+) -> Response {
+    if !storage.queue_exists(&queue) {
         warn!("Invalid queue name attempted: {queue}");
         return utils::json_error(
             StatusCode::FORBIDDEN,
@@ -154,59 +102,29 @@ pub async fn delete_item(State(db): State<Arc<AppDb>>, Path(queue): Path<String>
         );
     }
 
-    let conn = match db.conn.lock() {
-        Ok(conn) => conn,
+    match storage.delete_item(&queue) {
+        Ok(Some(item)) => {
+            let body = item.to_json_string().unwrap();
+            info!("pop from queue {queue}, got {item:?}");
+            Response::builder()
+                .status(StatusCode::OK)
+                .header("Content-Type", "application/json")
+                .header("Content-Length", body.len().to_string())
+                .body(body.into())
+                .unwrap()
+        }
+        Ok(None) => {
+            info!("pop from queue {queue}, the queue is empty");
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(e) => {
-            error!("Failed to lock database: {e}");
-            return utils::json_error(
+            error!("Failed to delete item from '{queue}': {e}");
+            utils::json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "InternalError",
-                &format!("Failed to lock database: {e}"),
-            );
+                &format!("Failed to delete item from queue {queue}: {e}"),
+            )
         }
-    };
-
-    let delete_sql = db.delete_item_sqls.get(&queue).unwrap();
-
-    // Use prepare_cached to reuse statements
-    let mut stmt = conn
-        .prepare_cached(delete_sql)
-        .expect("invalid SQL statement");
-
-    let item = stmt
-        .query_row(params![], |row| {
-            let datetime: i64 = row.get(0).expect("Failed to get datetime");
-            let datetime_secondary: i64 = row.get(1).expect("Failed to get datetime_secondary");
-            let message: String = row.get(2).expect("Failed to get message");
-            Ok(QueueItem {
-                datetime: chrono::DateTime::<chrono::Utc>::from_timestamp_millis(datetime)
-                    .expect("Invalid datetime from DB"),
-                datetime_secondary: if datetime_secondary == i64::MIN {
-                    None
-                } else {
-                    Some(
-                        chrono::DateTime::<chrono::Utc>::from_timestamp_millis(datetime_secondary)
-                            .expect("Invalid datetime_secondary from DB"),
-                    )
-                },
-                message,
-            })
-        })
-        .ok();
-
-    if let Some(item) = item {
-        let body = item.to_json_string().unwrap();
-        info!("pop from queue {queue}, got {item:?}");
-        Response::builder()
-            .status(StatusCode::OK)
-            .header("Content-Type", "application/json")
-            .header("Content-Length", body.len().to_string())
-            .body(body.into())
-            .unwrap()
-    } else {
-        // No valid item found
-        info!("pop from queue {queue}, the queue is empty");
-        StatusCode::NO_CONTENT.into_response()
     }
 }
 
@@ -221,7 +139,7 @@ mod tests {
     use chrono::Utc;
     use tower::ServiceExt;
 
-    fn setup_test_app() -> (Router, Arc<AppDb>) {
+    fn setup_test_app() -> (Router, Arc<dyn Storage>) {
         let config = AppConfig {
             bind_address: "127.0.0.1".to_string(),
             port: 8080,
@@ -232,13 +150,13 @@ mod tests {
             max_workers: Some(2),
         };
 
-        let db = Arc::new(AppDb::new(&config).unwrap());
+        let storage = Arc::new(dtqueue::InMemoryStorage::new(&config));
 
         let app = Router::new()
             .route("/{*queue}", get(get_item).put(put_item).delete(delete_item))
-            .with_state(db.clone());
+            .with_state(storage.clone() as Arc<dyn Storage>);
 
-        (app, db)
+        (app, storage)
     }
 
     #[tokio::test]

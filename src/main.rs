@@ -1,5 +1,5 @@
 use axum::{Router, routing::get};
-use dtqueue::{AppConfig, AppDb};
+use dtqueue::{AppConfig, InMemoryStorage, SqliteStorage, Storage};
 use log::info;
 use std::env;
 use std::fs::OpenOptions;
@@ -57,7 +57,11 @@ async fn main() -> std::io::Result<()> {
         app_config.bind_address, app_config.port
     );
 
-    let db = Arc::new(AppDb::new(&app_config).expect("Failed to initialize database"));
+    let storage: Arc<dyn Storage> = if app_config.database_path == ":memory:" {
+        Arc::new(InMemoryStorage::new(&app_config))
+    } else {
+        Arc::new(SqliteStorage::new(&app_config).expect("Failed to initialize database"))
+    };
 
     // Define routes
     let app = Router::new()
@@ -67,7 +71,7 @@ async fn main() -> std::io::Result<()> {
                 .put(handlers::put_item)
                 .delete(handlers::delete_item),
         )
-        .with_state(db);
+        .with_state(storage);
 
     // Create socket address
     let addr = (app_config.bind_address.as_str(), app_config.port)
